@@ -209,7 +209,7 @@ Deno.serve(async (req) => {
           phil_iri_aligned: true,
         },
       });
-    } catch (_) {}
+    } catch (_) { }
 
     return jsonResponse(generated);
   } catch (error) {
