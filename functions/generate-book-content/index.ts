@@ -81,6 +81,136 @@ const PHIL_IRI_GRADE_RULES: Record<string, PhilIriGradeRule> = {
   },
 };
 
+/**
+ * Child-safety restricted words & sensitive terms for elementary reading content.
+ * Enforces zero-tolerance for profanity, insults, violence, substances, sexual themes,
+ * and gambling in reading materials for students.
+ */
+const RESTRICTED_WORDS: readonly string[] = [
+  // Profanity & Vulgarity
+  'fuck',
+  'fucking',
+  'fucker',
+  'shit',
+  'shitty',
+  'bitch',
+  'bastard',
+  'asshole',
+  'cunt',
+  'dick',
+  'pussy',
+  'cock',
+  'slut',
+  'whore',
+  'damn',
+  'dammit',
+  'crap',
+  'bullshit',
+
+  // Insults, Slurs & Bullying
+  'retard',
+  'idiot',
+  'moron',
+  'imbecile',
+  'stupid',
+  'dumb',
+  'loser',
+
+  // Violence, Self-Harm, Weapons & Gore
+  'suicide',
+  'kill',
+  'killing',
+  'killer',
+  'murder',
+  'murderer',
+  'murdering',
+  'slaughter',
+  'decapitate',
+  'behead',
+  'stab',
+  'stabbing',
+  'stabbed',
+  'knife',
+  'gun',
+  'guns',
+  'pistol',
+  'rifle',
+  'shotgun',
+  'firearm',
+  'weapon',
+  'weapons',
+  'bullet',
+  'bullets',
+  'blood',
+  'bloody',
+  'bloodshed',
+  'gore',
+  'gory',
+  'corpse',
+
+  // Drugs, Alcohol, Tobacco & Vices
+  'marijuana',
+  'weed',
+  'cannabis',
+  'cocaine',
+  'heroin',
+  'meth',
+  'methamphetamine',
+  'narcotics',
+  'illegal drugs',
+  'beer',
+  'wine',
+  'liquor',
+  'whiskey',
+  'vodka',
+  'alcohol',
+  'alcoholic',
+  'drunk',
+  'drunken',
+  'hangover',
+  'cigarette',
+  'cigarettes',
+  'tobacco',
+  'vape',
+  'vaping',
+  'e-cigarette',
+  'gambling',
+  'casino',
+
+  // Sexual, Adult & Explicit Content
+  'sex',
+  'sexual',
+  'sexuality',
+  'sexy',
+  'porn',
+  'pornography',
+  'nude',
+  'nudity',
+  'naked',
+  'erotic',
+  'rape',
+  'rapist',
+  'molest',
+  'molestation',
+];
+
+/**
+ * Scans text for any child-safety restricted word using boundary-aware regex.
+ * Returns the matched word pattern if found, or null if safe.
+ */
+function findRestrictedWord(text: string): string | null {
+  if (!text || typeof text !== 'string') return null;
+  const normalized = text.toLowerCase();
+  for (const pattern of RESTRICTED_WORDS) {
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(?:^|[^a-zA-Z0-9_])${escaped}(?:$|[^a-zA-Z0-9_])`, 'i');
+    if (regex.test(normalized)) {
+      return pattern;
+    }
+  }
+  return null;
+}
+
 type GenerateRequest = {
   prompt: string;
   gradeLevel: string;
@@ -231,6 +361,13 @@ function parseRequest(raw: unknown): GenerateRequest {
   if (prompt.length > 1000) {
     throw new Error('Prompt must be 1000 characters or fewer.');
   }
+
+  const restrictedPromptWord = findRestrictedWord(prompt);
+  if (restrictedPromptWord) {
+    throw new Error(
+      `The prompt contains restricted content ("${restrictedPromptWord}") not suitable for elementary students.`,
+    );
+  }
   if (!Number.isInteger(quizCount) || quizCount < 1 || quizCount > 3) {
     throw new Error('quizCount must be between 1 and 3.');
   }
@@ -345,6 +482,14 @@ async function generateWithGemini({
     '- Highlight positive Filipino values such as Bayanihan (unity/helping one another), respect for elders (using "po/opo", pagmamano), sibling care (Ate/Kuya), perseverance, and care for nature.',
     '- Use authentic, relatable Filipino character names (e.g., Lito, Maya, Mateo, Aling Rosa, Mang Jose).',
     '- Keep content wholesome, educational, safe, and free from violence, sensitive issues, product brands, or copyrighted text.',
+    '',
+    `=== STRICT CHILD SAFETY & PROHIBITED CONTENT ===`,
+    '- The target readers are elementary school children (Grades 4-6). You must uphold zero tolerance for inappropriate content.',
+    '- ABSOLUTELY NO profanity, swear words, vulgar slang, or obscenity (e.g., no "damn", "shit", "bitch", "idiot", "stupid", etc.).',
+    '- ABSOLUTELY NO depictions or mentions of violence, physical harm, weapons (guns, knives), blood, gore, murder, death, or bullying.',
+    '- ABSOLUTELY NO references to alcohol (beer, wine, liquor), illegal drugs, tobacco, cigarettes, vaping, or gambling.',
+    '- ABSOLUTELY NO romantic, sexual, adult, or mature content.',
+    '- Content must be 100% wholesome, emotionally uplifting, safe, and supportive of young readers.',
     '',
     `=== COMPREHENSION QUIZ RULES (${request.quizCount} Questions) ===`,
     'Formulate multiple-choice questions aligned with Phil-IRI cognitive question typologies:',
@@ -481,6 +626,27 @@ function validateDraft(
 
   if (questions.length < 1 || questions.length > 3) {
     throw new Error('Generated quiz count is invalid.');
+  }
+
+  // Verify that generated content does not contain any restricted words
+  const safetyChecks: { field: string; text: string }[] = [
+    { field: 'title', text: title },
+    { field: 'passage', text: passageText },
+  ];
+  for (const q of questions) {
+    safetyChecks.push({ field: 'question', text: q.questionText });
+    for (const opt of q.options) {
+      safetyChecks.push({ field: 'quiz option', text: opt });
+    }
+  }
+
+  for (const check of safetyChecks) {
+    const matched = findRestrictedWord(check.text);
+    if (matched) {
+      throw new Error(
+        `Generated content contains restricted word ("${matched}") not suitable for students. Please try a different topic.`,
+      );
+    }
   }
 
   return {
